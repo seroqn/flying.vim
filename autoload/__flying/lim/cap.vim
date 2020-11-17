@@ -86,8 +86,8 @@ function! s:Inputs.receive() "{{{
   elseif has_key(self, 'asyncfunc')
     let base_time = reltime()
     while 1
-      let _ = getchar(0)
-      if _==s:TYPE_STR || _
+      let cn = getchar(0)
+      if cn==s:TYPE_STR && cn !=# "\x80\xfd`" || cn
         break
       elseif str2float(reltimestr(reltime(base_time))) >= self.asynctime
         call call('call', self.asyncfunc)
@@ -95,14 +95,19 @@ function! s:Inputs.receive() "{{{
       end
     endwhile
   else
-    let _ = getchar()
+    while 1
+      let cn = getchar()
+      if cn !=# "\x80\xfd`"
+        break
+      end
+    endwhile
   end
-  let input = type(_)==s:TYPE_STR ? _ : nr2char(_)
+  let input = type(cn)==s:TYPE_STR ? cn : nr2char(cn)
   let self.crrinput .= input
   call self._update()
   while getchar(1)
-    let _ = getchar()
-    let char = type(_)==s:TYPE_STR ? _ : nr2char(_)
+    let cn = getchar()
+    let char = type(cn)==s:TYPE_STR ? cn : nr2char(cn)
     let input .= char
     let self.crrinput .= char
     call self._update()

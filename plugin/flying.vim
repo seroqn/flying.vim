@@ -2,10 +2,12 @@ if expand('<sfile>:p')!=#expand('%:p') && exists('g:loaded_flying')| finish| end
 let s:save_cpo = &cpo| set cpo&vim
 scriptencoding utf-8
 "=============================================================================
-noremap <silent><Plug>(flying-f) :<C-u>call flying#fly('f', 0)<CR>
-noremap <silent><Plug>(flying-F) :<C-u>call flying#fly('F', 0)<CR>
-xnoremap <silent><Plug>(flying-f) :<C-u>call flying#fly('f', 1)<CR>
-xnoremap <silent><Plug>(flying-F) :<C-u>call flying#fly('F', 1)<CR>
+noremap <silent><expr><Plug>(flying-f) flying#fly('f')
+noremap <silent><expr><Plug>(flying-F) flying#fly('F')
+sunmap <Plug>(flying-f)
+sunmap <Plug>(flying-F)
+
+"onoremap <silent><Plug>(flying-f) :<C-u>call flying#_fly('f', 0, 1)<CR>
 
 let g:flying#keymappings = exists('g:flying#keymappings') ? g:flying#keymappings :
   \ {"\<C-f>": "forward", "\<C-b>": "backward", "\<C-n>": "nextline", "\<C-p>": "prevline", "\<C-o>": "histback", "\<C-i>": "histadvance", "\<BS>": "backspace", "\<C-h>": "backspace", "\<C-u>": "clearline"}

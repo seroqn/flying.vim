@@ -2,14 +2,15 @@ if exists('s:save_cpo')| finish| endif
 let s:save_cpo = &cpo| set cpo&vim
 scriptencoding utf-8
 "=============================================================================
+let s:save_inputline = ''
+
 let s:Flight = {}
-function! s:newFlight(way, is_vmode) abort "{{{
+function! s:newFlight(way, is_vmode, is_omode) abort "{{{
   let u = copy(s:Flight)
   let u.save_opts = {'guicursor': &guicursor, 't_ve': &t_ve, 'scrolloff': &scrolloff}
-  let u.save_mode = mode(1)
   let [u.top, u.bot] = [line('w0'), line('w$')]
   let u.pos = getpos('.')[1:2]
-  let u.way = a:way
+  let [u.way, u.is_omode] = [a:way, a:is_omode]
   let u.vmode= ''
   if a:is_vmode
     let u.vmode = visualmode()
@@ -20,20 +21,20 @@ function! s:newFlight(way, is_vmode) abort "{{{
   end
   let [u.hists, u.hist_idx] = [[u.pos], 0]
   let u.InputLine = ''
-  let u.mId = -1
+  let u.mIds = []
   return u
 endfunc
 "}}}
 function! s:Flight.start() abort "{{{
   setl guicursor=a:block-blinkon0-NONE t_ve= scrolloff=0
   highlight Flying_Cursor   gui=bold guifg=DarkSlateGray guibg=LightCyan cterm=bold ctermfg=black ctermbg=cyan term=reverse
+  highlight Flying_ORegion   guibg=SlateBlue cterm=reverse term=reverse
   call self._pos_updated()
 endfunc
 "}}}
 function! s:Flight.finish() abort "{{{
-  if self.mId != -1
-    call matchdelete(self.mId)
-  end
+  call self._clearmatches()
+  let self.mIds = []
   for [opt, val] in items(self.save_opts)
     exe 'let &l:'. opt. ' = val'
   endfor
@@ -48,7 +49,7 @@ function! s:Flight.update_inputline(appendee) abort "{{{
   if pos == []
     return -1
   end
-  call self._append_pos(pos)._pos_updated()
+  call self._move_pos(pos)._pos_updated()
 endfunc
 "}}}
 function! s:Flight.reflect_pos() abort "{{{
@@ -60,13 +61,20 @@ function! s:Flight.reflect_pos() abort "{{{
   call cursor(self.pos)
 endfunc
 "}}}
+function! s:Flight._clearmatches() abort "{{{
+  for mId in self.mIds
+    call matchdelete(mId)
+  endfor
+  let self.mIds = []
+endfunc
+"}}}
 function! s:Flight._histgo(delta) abort "{{{
   let self.hist_idx += a:delta
   let self.pos = self.hists[self.hist_idx]
   call self._pos_updated()
 endfunc
 "}}}
-function! s:Flight._append_pos(pos) abort "{{{
+function! s:Flight._move_pos(pos) abort "{{{
   let self.pos = a:pos
   if self.hist_idx != len(self.hists)-1
     let self.hists = self.hists[: self.hist_idx]
@@ -77,19 +85,26 @@ function! s:Flight._append_pos(pos) abort "{{{
 endfunc
 "}}}
 function! s:Flight._pos_updated() abort "{{{
-  if self.mId != -1
-    call matchdelete(self.mId)
+  call self._clearmatches()
+  if self.is_omode
+    let result = s:pos1_is_after(self.pos, self.base_pos)
+    if result > 0
+      call add(self.mIds, matchadd('Flying_ORegion', '\%(\%'. self.base_pos[0]. 'l\&\%'. self.base_pos[1]. 'c\)\_.\{-}\%(\%'. self.pos[0]. 'l\&\%'. self.pos[1]. 'c\)'))
+    elseif result < 0
+      call add(self.mIds, matchadd('Flying_ORegion', '\%(\%'. self.pos[0]. 'l\&\%'. self.pos[1]. 'c\)\_.\{-}\%(\%'. self.base_pos[0]. 'l\&\%'. self.base_pos[1]. 'c\)'))
+    end
+    call add(self.mIds, matchadd('Flying_Cursor', '\%'. self.base_pos[0]. 'l\&\%'. self.base_pos[1]. 'c'))
+    redraw
+    "echo printf('> %s %s', self.pos, self.InputLine)
+    return self
   end
-  if self.vmode!=#'v' || self.base_pos == self.pos
-    call cursor(self.pos)
-  elseif self.base_pos[0] < self.pos[0] || self.base_pos[0] == self.pos[0] && self.base_pos[1] < self.pos[1]
-    call cursor(self.pos[0], self.pos[1]-1)
-  else
-    call cursor(self.pos[0], self.pos[1]+1)
+  if self.vmode==#'v'
+    let result = s:pos1_is_after(self.pos, self.base_pos)
+    call cursor(result==0 ? self.pos : result > 0 ? [self.pos[0], self.pos[1]-1] : [self.pos[0], self.pos[1]+1])
   end
-  let self.mId = matchadd('Flying_Cursor', '\%'. self.pos[0]. 'l\&\%'. self.pos[1]. 'c', 1000)
+  call add(self.mIds, matchadd('Flying_Cursor', '\%'. self.pos[0]. 'l\&\%'. self.pos[1]. 'c'))
   redraw
-  echo printf('> %s %s', self.pos, self.InputLine)
+  "echo printf('> %s %s', self.pos, self.InputLine)
   return self
 endfunc
 "}}}
@@ -101,14 +116,14 @@ function! s:Flight._searchforward(pos) abort "{{{
   end
   let folded = foldclosedend(pos[0])
   if folded == -1
-    return pos
+    return self._modifypos(pos)
   end
   while folded!=-1
     let unfold_border = folded+1
     let folded = foldclosedend(unfold_border)
   endwhile
   if unfold_border > line('$')
-    return pos
+    return self._modifypos(pos)
   end
   call cursor([unfold_border, 1])
   return self._searchforward([unfold_border, 1])
@@ -134,6 +149,13 @@ function! s:Flight._searchbackward(pos) abort "{{{
   return self._searchbackward([unfold_border+1, 1])
 endfunc
 "}}}
+function! s:Flight._modifypos(pos) abort "{{{
+  if self.is_omode
+    return [a:pos[0], a:pos[1]+1]
+  end
+  return a:pos
+endfunc
+"}}}
 function! s:Flight._restore_inputline() abort "{{{
   if self.InputLine==''
     if s:save_inputline==''
@@ -157,7 +179,7 @@ function! s:FlightAction.forward() abort "{{{
   if pos == []
     return
   end
-  call self._append_pos(pos)._pos_updated()
+  call self._move_pos(pos)._pos_updated()
 endfunc
 "}}}
 function! s:FlightAction.backward() abort "{{{
@@ -168,7 +190,7 @@ function! s:FlightAction.backward() abort "{{{
   if pos == []
     return
   end
-  call self._append_pos(pos)._pos_updated()
+  call self._move_pos(pos)._pos_updated()
 endfunc
 "}}}
 function! s:FlightAction.nextline() abort "{{{
@@ -179,7 +201,7 @@ function! s:FlightAction.nextline() abort "{{{
   if pos == []
     return
   end
-  call self._append_pos(pos)._pos_updated()
+  call self._move_pos(pos)._pos_updated()
 endfunc
 "}}}
 function! s:FlightAction.prevline() abort "{{{
@@ -190,7 +212,7 @@ function! s:FlightAction.prevline() abort "{{{
   if pos == []
     return
   end
-  call self._append_pos(pos)._pos_updated()
+  call self._move_pos(pos)._pos_updated()
 endfunc
 "}}}
 function! s:FlightAction.histback() abort "{{{
@@ -221,12 +243,23 @@ endfunc
 "}}}
 
 
-let s:save_inputline = ''
-function! flying#fly(way, is_vmode) abort "{{{
+function! flying#fly(way) abort "{{{
+  echom 'fly'v:operator s:save_inputline v:count1 mode(1)
+  if a:way !~# '^[fFtT]$'
+    throw "Error: Invalid mapping `". a:way. "`"
+  endif
+  let mode = mode(1)
+  let is_vmode = mode==? 'v' || mode=="\<C-v>"
+  let is_omode = mode[:1] == 'no'
+  return printf(":\<C-u>call flying#_fly('%s', %d, %d)\<CR>", a:way, is_vmode, is_omode)
+endfunc
+"}}}
+function! flying#_fly(way, is_vmode, is_omode) "{{{
+  echo '' | " ドットリピート時呼び出しコマンドが見えるのを消させる
   if a:is_vmode
     norm! gv
   end
-  let flight = s:newFlight(a:way, a:is_vmode)
+  let flight = s:newFlight(a:way, a:is_vmode, a:is_omode)
   call flight.start()
   try
     call s:loop(flight)
@@ -252,6 +285,10 @@ function! s:loop(flight) abort "{{{
 endfunc
 "}}}
 
+function! s:pos1_is_after(pos1, pos2) abort "{{{
+  return a:pos1[0] == a:pos2[0] ? a:pos1[1] - a:pos2[1] : a:pos1[0] - a:pos2[0]
+endfunc
+"}}}
 "=============================================================================
 "END "{{{1
 let &cpo = s:save_cpo| unlet s:save_cpo
