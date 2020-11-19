@@ -3,7 +3,7 @@ let s:save_cpo = &cpo| set cpo&vim
 scriptencoding utf-8
 "=============================================================================
 let s:save_inputline = ''
-let s:movingpoint = {}
+let s:landingpoint = {}
 
 let s:Flight = {}
 function! s:newFlight(way, is_vmode, is_omode) abort "{{{
@@ -26,8 +26,8 @@ function! s:newFlight(way, is_vmode, is_omode) abort "{{{
   return u
 endfunc
 "}}}
-function! s:Flight.movingpoint() abort "{{{
-  return {'base_pos': self.base_pos, 'pos': self.pos}
+function! s:Flight.landingpoint() abort "{{{
+  return {'src_pos': self.base_pos, 'dst_pos': self.pos}
 endfunc
 "}}}
 function! s:Flight.start() abort "{{{
@@ -46,6 +46,7 @@ function! s:Flight.cleanup() abort "{{{
   for [opt, val] in items(self.save_opts)
     exe 'let &l:'. opt. ' = val'
   endfor
+  call cursor(self.base_pos)
 endfunc
 "}}}
 function! s:Flight.update_inputline(appendee) abort "{{{
@@ -53,7 +54,7 @@ function! s:Flight.update_inputline(appendee) abort "{{{
     let s:save_inputline = self.InputLine
   end
   let self.InputLine .= a:appendee
-  let pos = self[self.way==#'f' ? '_searchforward' : '_searchbackward'](self.pos)
+  let pos = self[self.way=~'\l' ? '_searchforward' : '_searchbackward'](self.pos)
   if pos == []
     return -1
   end
@@ -65,7 +66,7 @@ function! s:Flight.repeat(inputline, cnt) abort "{{{
   let cnt = a:cnt
   while cnt
     let cnt -= 1
-    let pos = self[self.way==#'f' ? '_searchforward' : '_searchbackward'](self.pos)
+    let pos = self[self.way=~'\l' ? '_searchforward' : '_searchbackward'](self.pos)
     if pos == []
       break
     end
@@ -123,20 +124,20 @@ endfunc
 "}}}
 function! s:Flight._searchforward(pos) abort "{{{
   call cursor(a:pos)
-  let pos = searchpos('\V'. escape(self.InputLine, '\'), 'Wn', self.bot)
+  let pos = searchpos(self._get_search_pat(), 'Wn', self.bot)
   if pos == [0,0]
     return []
   end
   let folded = foldclosedend(pos[0])
   if folded == -1
-    return self._modifypos(pos)
+    return self._modifypos_fw(pos)
   end
   while folded!=-1
     let unfold_border = folded+1
     let folded = foldclosedend(unfold_border)
   endwhile
   if unfold_border > line('$')
-    return self._modifypos(pos)
+    return self._modifypos_fw(pos)
   end
   call cursor([unfold_border, 1])
   return self._searchforward([unfold_border, 1])
@@ -144,7 +145,7 @@ endfunc
 "}}}
 function! s:Flight._searchbackward(pos) abort "{{{
   call cursor(a:pos)
-  let pos = searchpos('\V'. escape(self.InputLine, '\'), 'nWb', self.top)
+  let pos = searchpos(self._get_search_pat(), 'nWb', self.top)
   if pos == [0,0]
     return []
   end
@@ -162,7 +163,15 @@ function! s:Flight._searchbackward(pos) abort "{{{
   return self._searchbackward([unfold_border+1, 1])
 endfunc
 "}}}
-function! s:Flight._modifypos(pos) abort "{{{
+function! s:Flight._get_search_pat() abort "{{{
+  if self.way!=#'T'
+    return (self.way==?'t' ? '.\ze\V': '\V'). escape(self.InputLine, '\')
+  end
+  let [first; rest] = split(self.InputLine, '\zs')
+  return '\V'. escape(first, '\'). '\zs'. escape(join(rest, ''), '\')
+endfunc
+"}}}
+function! s:Flight._modifypos_fw(pos) abort "{{{
   if self.is_omode
     return [a:pos[0], a:pos[1]+1]
   end
@@ -265,27 +274,32 @@ function! flying#keymap(way) "{{{
   if is_vmode
     return printf(":\<C-u>call flying#_vmode('%s')\<CR>", a:way)
   end
-  let s:movingpoint = v:count==0 ? s:fly(a:way, 0, is_omode) : s:countjump(a:way, v:count, 0, is_omode)
+  let s:landingpoint = v:count==0 ? s:fly(a:way, 0, is_omode) : s:countjump(a:way, v:count, 0, is_omode)
   return printf(":\<C-u>call flying#_move_cursor('%s')\<CR>", a:way)
 endfunc
 "}}}
 function! flying#_vmode(way) abort "{{{
   norm! gv
-  let s:movingpoint = v:count==0 ? s:fly(a:way, 1, 0) : s:countjump(a:way, v:count, 1, 0)
-  return printf(":\<C-u>call flying#_move_cursor('%s')\<CR>", a:way)
+  let landingpoint = v:count==0 ? s:fly(a:way, 1, 0) : s:countjump(a:way, v:count, 1, 0)
+  if landingpoint.src_pos == landingpoint.dst_pos
+    return
+  end
+  call cursor(landingpoint.src_pos)
+  norm! m'
+  call cursor(landingpoint.dst_pos)
 endfunc
 "}}}
 function! flying#_move_cursor(way) abort "{{{
-  if s:movingpoint=={}
-    let pos = s:newFlight(a:way, 0, 1).repeat(s:save_inputline, v:count1).movingpoint().pos
+  if s:landingpoint=={}
+    let pos = s:newFlight(a:way, 0, 1).repeat(s:save_inputline, v:count1).landingpoint().dst_pos
     call cursor(pos)
     return
-  elseif s:movingpoint.base_pos != s:movingpoint.pos
-    call cursor(s:movingpoint.base_pos)
+  elseif s:landingpoint.src_pos != s:landingpoint.dst_pos
+    call cursor(s:landingpoint.src_pos)
     norm! m'
-    call cursor(s:movingpoint.pos)
+    call cursor(s:landingpoint.dst_pos)
   end
-  let s:movingpoint = {}
+  let s:landingpoint = {}
 endfunc
 "}}}
 function! s:countjump(way, cnt, is_vmode, is_omode) abort "{{{
@@ -297,10 +311,10 @@ function! s:countjump(way, cnt, is_vmode, is_omode) abort "{{{
   endwhile
   let flight = s:newFlight(a:way, a:is_vmode, a:is_omode)
   if type(cn)!=type(1)
-    return flight.movingpoint()
+    return flight.landingpoint()
   end
   let s:save_inputline = nr2char(cn)
-  return flight.repeat(s:save_inputline, a:cnt).movingpoint()
+  return flight.repeat(s:save_inputline, a:cnt).landingpoint()
 endfunc
 "}}}
 function! s:fly(way, is_vmode, is_omode) abort "{{{
@@ -311,7 +325,7 @@ function! s:fly(way, is_vmode, is_omode) abort "{{{
   finally
     call flight.cleanup()
   endtry
-  return flight.movingpoint()
+  return flight.landingpoint()
 endfunc
 "}}}
 function! s:loop(flight) abort "{{{
