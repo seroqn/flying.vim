@@ -1,0 +1,136 @@
+*flying.txt*	画面内の文字列をインクリメンタルサーチしてジャンプします
+
+Author  : seroqn
+License : MIT license  {{{
+    Permission is hereby granted, free of charge, to any person obtaining
+    a copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject to
+    the following conditions:
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+    IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+    CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+    TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+    SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}}}
+
+==============================================================================
+目次						*flying-contents*
+
+概要				|flying-introduction|
+設定例				|flying-setting-example|
+インターフェイス		|flying-interface|
+  変数				  |flying-variables|
+  キーマッピング		  |flying-key-mappings|
+
+
+==============================================================================
+概要						*flying-introduction*
+
+*flying* は標準の|f||F||t||T|によく似た挙動をしながら入力した文字列をカーソル
+位置の前方／後方から検索しジャンプします。
+一文字入力するたび次の候補にジャンプします。ヒットする単語がないか、無効なキー
+が押されたとき、そこでこの検索モードを終了します。
+
+|f||F||t||T|と違って画面に映ってる範囲全体が対象になります。
+
+
+検索モード中に|<C-f>|、|<C-b>|で前方／後方の候補にジャンプします。
+入力がない状態で呼び出すと、以前呼び出されたときの入力を使います。
+検索モード中に|<C-n>|、|<C-p>|で次の行／前の行まで検索を飛ばします。
+検索モード中に|<C-o>|で直前にいた場所にカーソルを戻します。
+検索モード中に|<BS>|、|<C-h>|で一文字訂正します。
+検索モード中に|<C-u>|で入力をはじめからやり直します。
+
+
+==============================================================================
+設定例						*flying-setting-example*
+>
+ map f <Plug>(flying-f)
+ map F <Plug>(flying-F)
+ map t <Plug>(flying-t)
+ map T <Plug>(flying-T)
+
+ " デフォルトキーマッピング設定
+ let g:flying#keymappings = {
+   \ "\<C-f>": "forward",
+   \ "\<C-b>": "backward",
+   \ "\<C-n>": "nextline",
+   \ "\<C-p>": "prevline",
+   \ "\<C-o>": "histback",
+   \ "\<C-i>": "histadvance",
+   \ "\<BS>": "backspace",
+   \ "\<C-h>": "backspace",
+   \ "\<C-u>": "clearline"
+   \ }
+ " 半角スペースでモードを抜けたい場合
+ let g:flying#keymappings["\<Space>"] = "exit"
+
+
+
+==============================================================================
+インターフェイス				*flying-interface*
+
+------------------------------------------------------------------------------
+変数						*flying-variables*
+
+g:flying#keymappings				*g:flying#keymappings*
+	辞書: キーにキーマップに使う文字列、値にアクション名(文字列)
+
+	検索モード中にこの辞書のキーに設定している文字を押すと該当するアクショ
+	ンを実行します。（|<C-f>|で次の候補にジャンプするなどの）
+
+	キーは|string|として評価されるので制御文字などを設定するときには
+	"\<C-a>" などとダブルクォート内にバックスラッシュで定義します。
+
+	アクション名一覧
+		forward		次の候補にジャンプします
+		backward	前の候補にジャンプします
+		nextline	検索を次の行にまでスキップします。
+		prevline	検索を前の行にまでスキップします。
+		histback	直前にいた場所にカーソルを戻します。
+		histadvance	histback を打ち消します。
+		backspace	入力を一文字訂正します。
+		clearline	入力をはじめからやり直します。
+
+
+------------------------------------------------------------------------------
+キーマッピング					*flying-key-mappings*
+
+<Plug>(flying-f)				*<Plug>(flying-f)*
+	有効モード: ノーマル ビジュアル オペレータ
+	前方をサーチします。
+
+
+<Plug>(flying-F)				*<Plug>(flying-F)*
+	有効モード: ノーマル ビジュアル オペレータ
+	後方をサーチします。
+
+
+<Plug>(flying-t)				*<Plug>(flying-t)*
+	有効モード: ノーマル ビジュアル オペレータ
+	前方をサーチします。|t|のような挙動です。
+
+
+<Plug>(flying-T)				*<Plug>(flying-T)*
+	有効モード: ノーマル ビジュアル オペレータ
+	後方をサーチします。|T|のような挙動です。
+
+
+==============================================================================
+挙動の細かいところ
+
+- カウントが与えられたときには標準の|f||F||t||T|のように一文字だけ受け取ってそ
+の文字にジャンプする挙動に変化します。
+  - ただしオペレータコマンドのリピートにカウントが与えられたときには、前回使っ
+  た検索をそのカウント分実行します。
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:noet:fen:
