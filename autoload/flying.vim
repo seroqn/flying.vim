@@ -3,6 +3,7 @@ let s:save_cpo = &cpo| set cpo&vim
 scriptencoding utf-8
 "=============================================================================
 let s:save_inputline = ''
+let s:movingpoint = {}
 
 let s:Flight = {}
 function! s:newFlight(way, is_vmode, is_omode) abort "{{{
@@ -25,6 +26,10 @@ function! s:newFlight(way, is_vmode, is_omode) abort "{{{
   return u
 endfunc
 "}}}
+function! s:Flight.movingpoint() abort "{{{
+  return {'base_pos': self.base_pos, 'pos': self.pos}
+endfunc
+"}}}
 function! s:Flight.start() abort "{{{
   setl guicursor=a:block-blinkon0-NONE t_ve= scrolloff=0
   highlight Flying_Cursor   gui=bold guifg=DarkSlateGray guibg=LightCyan cterm=bold ctermfg=black ctermbg=cyan term=reverse
@@ -32,7 +37,10 @@ function! s:Flight.start() abort "{{{
   call self._pos_updated()
 endfunc
 "}}}
-function! s:Flight.finish() abort "{{{
+function! s:Flight.cleanup() abort "{{{
+  if self.InputLine==''
+    let s:save_inputline = ''
+  end
   call self._clearmatches()
   let self.mIds = []
   for [opt, val] in items(self.save_opts)
@@ -52,13 +60,18 @@ function! s:Flight.update_inputline(appendee) abort "{{{
   call self._move_pos(pos)._pos_updated()
 endfunc
 "}}}
-function! s:Flight.reflect_pos() abort "{{{
-  if self.base_pos == self.pos
-    return
-  end
-  call cursor(self.base_pos)
-  norm! m'
-  call cursor(self.pos)
+function! s:Flight.repeat(inputline, cnt) abort "{{{
+  let self.InputLine = a:inputline
+  let cnt = a:cnt
+  while cnt
+    let cnt -= 1
+    let pos = self[self.way==#'f' ? '_searchforward' : '_searchbackward'](self.pos)
+    if pos == []
+      break
+    end
+    let self.pos = pos
+  endwhile
+  return self
 endfunc
 "}}}
 function! s:Flight._clearmatches() abort "{{{
@@ -243,30 +256,62 @@ endfunc
 "}}}
 
 
-function! flying#fly(way) abort "{{{
-  echom 'fly'v:operator s:save_inputline v:count1 mode(1)
+function! flying#keymap(way) "{{{
   if a:way !~# '^[fFtT]$'
     throw "Error: Invalid mapping `". a:way. "`"
   endif
   let mode = mode(1)
-  let is_vmode = mode==? 'v' || mode=="\<C-v>"
-  let is_omode = mode[:1] == 'no'
-  return printf(":\<C-u>call flying#_fly('%s', %d, %d)\<CR>", a:way, is_vmode, is_omode)
+  let [is_vmode, is_omode] = [mode==? 'v' || mode=="\<C-v>", mode[:1] == 'no']
+  if is_vmode
+    return printf(":\<C-u>call flying#_vmode('%s')\<CR>", a:way)
+  end
+  let s:movingpoint = v:count==0 ? s:fly(a:way, 0, is_omode) : s:countjump(a:way, v:count, 0, is_omode)
+  return printf(":\<C-u>call flying#_move_cursor('%s')\<CR>", a:way)
 endfunc
 "}}}
-function! flying#_fly(way, is_vmode, is_omode) "{{{
-  echo '' | " ドットリピート時呼び出しコマンドが見えるのを消させる
-  if a:is_vmode
-    norm! gv
+function! flying#_vmode(way) abort "{{{
+  norm! gv
+  let s:movingpoint = v:count==0 ? s:fly(a:way, 1, 0) : s:countjump(a:way, v:count, 1, 0)
+  return printf(":\<C-u>call flying#_move_cursor('%s')\<CR>", a:way)
+endfunc
+"}}}
+function! flying#_move_cursor(way) abort "{{{
+  if s:movingpoint=={}
+    let pos = s:newFlight(a:way, 0, 1).repeat(s:save_inputline, v:count1).movingpoint().pos
+    call cursor(pos)
+    return
+  elseif s:movingpoint.base_pos != s:movingpoint.pos
+    call cursor(s:movingpoint.base_pos)
+    norm! m'
+    call cursor(s:movingpoint.pos)
   end
+  let s:movingpoint = {}
+endfunc
+"}}}
+function! s:countjump(way, cnt, is_vmode, is_omode) abort "{{{
+  while 1
+    let cn = getchar()
+    if cn !=# "\x80\xfd`"
+      break
+    endif
+  endwhile
+  let flight = s:newFlight(a:way, a:is_vmode, a:is_omode)
+  if type(cn)!=type(1)
+    return flight.movingpoint()
+  end
+  let s:save_inputline = nr2char(cn)
+  return flight.repeat(s:save_inputline, a:cnt).movingpoint()
+endfunc
+"}}}
+function! s:fly(way, is_vmode, is_omode) abort "{{{
   let flight = s:newFlight(a:way, a:is_vmode, a:is_omode)
   call flight.start()
   try
     call s:loop(flight)
-    call flight.reflect_pos()
   finally
-    call flight.finish()
+    call flight.cleanup()
   endtry
+  return flight.movingpoint()
 endfunc
 "}}}
 function! s:loop(flight) abort "{{{
