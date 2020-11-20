@@ -75,6 +75,10 @@ License : MIT license  {{{
  " 半角スペースでモードを抜けたい場合の例
  let g:flying#keymappings["\<Space>"] = "exit"
 
+ " `;` と `,` で次の候補／前の候補に移動する例
+ let g:flying#keymappings[";"] = "forward"
+ let g:flying#keymappings[","] = "backward"
+
 
 ==============================================================================
 詳細な機能					*flying-detail*
