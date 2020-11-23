@@ -21,7 +21,8 @@ function! s:newFlight(way, is_vmode, is_omode) abort "{{{
     let u.base_pos = copy(u.pos)
   end
   let [u.hists, u.hist_idx] = [[u.pos], 0]
-  let u.InputLine = ''
+  let u.inputline = ''
+  let u.pre_invalid_input = ''
   let u.mIds = []
   return u
 endfunc
@@ -38,7 +39,7 @@ function! s:Flight.start() abort "{{{
 endfunc
 "}}}
 function! s:Flight.cleanup() abort "{{{
-  if self.InputLine==''
+  if self.inputline==''
     let s:save_inputline = ''
   end
   call self._clearmatches()
@@ -50,10 +51,10 @@ function! s:Flight.cleanup() abort "{{{
 endfunc
 "}}}
 function! s:Flight.update_inputline(appendee) abort "{{{
-  if self.InputLine!=''
-    let s:save_inputline = self.InputLine
+  if self.inputline!=''
+    let s:save_inputline = self.inputline
   end
-  let self.InputLine .= a:appendee
+  let self.inputline .= a:appendee
   let pos = self[self.way=~'\l' ? '_searchforward' : '_searchbackward'](self.pos)
   if pos == []
     return -1
@@ -62,7 +63,7 @@ function! s:Flight.update_inputline(appendee) abort "{{{
 endfunc
 "}}}
 function! s:Flight.repeat(inputline, cnt) abort "{{{
-  let self.InputLine = a:inputline
+  let self.inputline = a:inputline
   let cnt = a:cnt
   while cnt
     let cnt -= 1
@@ -109,7 +110,7 @@ function! s:Flight._pos_updated() abort "{{{
     end
     call add(self.mIds, matchadd('Flying_Cursor', '\%'. self.base_pos[0]. 'l\&\%'. self.base_pos[1]. 'c'))
     redraw
-    "echo printf('> %s %s', self.pos, self.InputLine)
+    "echo printf('> %s %s', self.pos, self.inputline)
     return self
   end
   if self.vmode==#'v'
@@ -118,7 +119,7 @@ function! s:Flight._pos_updated() abort "{{{
   end
   call add(self.mIds, matchadd('Flying_Cursor', '\%'. self.pos[0]. 'l\&\%'. self.pos[1]. 'c'))
   redraw
-  "echo printf('> %s %s', self.pos, self.InputLine)
+  "echo printf('> %s %s', self.pos, self.inputline)
   return self
 endfunc
 "}}}
@@ -165,9 +166,9 @@ endfunc
 "}}}
 function! s:Flight._get_search_pat() abort "{{{
   if self.way!=#'T'
-    return (self.way==?'t' ? '.\ze\V': '\V'). escape(self.InputLine, '\')
+    return (self.way==?'t' ? '.\ze\V': '\V'). escape(self.inputline, '\')
   end
-  let [first; rest] = split(self.InputLine, '\zs')
+  let [first; rest] = split(self.inputline, '\zs')
   return '\V'. escape(first, '\'). '\zs'. escape(join(rest, ''), '\')
 endfunc
 "}}}
@@ -179,85 +180,93 @@ function! s:Flight._modifypos_fw(pos) abort "{{{
 endfunc
 "}}}
 function! s:Flight._restore_inputline() abort "{{{
-  if self.InputLine==''
+  if self.inputline==''
     if s:save_inputline==''
       return -1
     end
-    let self.InputLine = s:save_inputline
+    let self.inputline = s:save_inputline
   end
   return 0
 endfunc
 "}}}
+function! s:Flight._break_for_invalid(raw) abort "{{{
+  if a:raw ==# self.pre_invalid_input
+    return -1
+  end
+  let self.pre_invalid_input = a:raw
+endfunc
+"}}}
 let s:FlightAction = {}
-function! s:FlightAction.exit() abort "{{{
+function! s:FlightAction.exit(raw) abort "{{{
   return -1
 endfunc
 "}}}
-function! s:FlightAction.forward() abort "{{{
+function! s:FlightAction.forward(raw) abort "{{{
   if self._restore_inputline()
-    return
+    return self._break_for_invalid(a:raw)
   end
   let pos = self._searchforward(self.pos)
   if pos == []
-    return
+    return self._break_for_invalid(a:raw)
   end
+  let self.pre_invalid_input = ''
   call self._move_pos(pos)._pos_updated()
 endfunc
 "}}}
-function! s:FlightAction.backward() abort "{{{
+function! s:FlightAction.backward(raw) abort "{{{
   if self._restore_inputline()
-    return
+    return self._break_for_invalid(a:raw)
   end
   let pos = self._searchbackward(self.pos)
   if pos == []
-    return
+    return self._break_for_invalid(a:raw)
   end
   call self._move_pos(pos)._pos_updated()
 endfunc
 "}}}
-function! s:FlightAction.nextline() abort "{{{
+function! s:FlightAction.nextline(raw) abort "{{{
   if self._restore_inputline()
-    return
+    return self._break_for_invalid(a:raw)
   end
   let pos = self._searchforward([self.pos[0], col([self.pos[0], '$'])])
   if pos == []
-    return
+    return self._break_for_invalid(a:raw)
   end
   call self._move_pos(pos)._pos_updated()
 endfunc
 "}}}
-function! s:FlightAction.prevline() abort "{{{
+function! s:FlightAction.prevline(raw) abort "{{{
   if self._restore_inputline()
-    return
+    return self._break_for_invalid(a:raw)
   end
   let pos = self._searchbackward([self.pos[0], 1])
   if pos == []
-    return
+    return self._break_for_invalid(a:raw)
   end
   call self._move_pos(pos)._pos_updated()
 endfunc
 "}}}
-function! s:FlightAction.histback() abort "{{{
+function! s:FlightAction.histback(raw) abort "{{{
   if self.hist_idx<=0
     return
   end
   call self._histgo(-1)
 endfunc
 "}}}
-function! s:FlightAction.histadvance() abort "{{{
+function! s:FlightAction.histadvance(raw) abort "{{{
   if self.hist_idx>=len(self.hists)-1
     return
   end
   call self._histgo(1)
 endfunc
 "}}}
-function! s:FlightAction.backspace() abort "{{{
-  let self.InputLine = self.InputLine[: -2]
+function! s:FlightAction.backspace(raw) abort "{{{
+  let self.inputline = self.inputline[: -2]
   call self._histgo(-1)
 endfunc
 "}}}
-function! s:FlightAction.clearline() abort "{{{
-  let self.InputLine = ''
+function! s:FlightAction.clearline(raw) abort "{{{
+  let self.inputline = ''
   let self.pos = self.hists[0]
   let [self.hists, self.hist_idx] = [[self.pos], 0]
   call self._pos_updated()
@@ -334,7 +343,7 @@ function! s:loop(flight) abort "{{{
     if typee=={}
       break
     end
-    if has_key(s:FlightAction, typee.action) && call(s:FlightAction[typee.action], [], a:flight)
+    if has_key(s:FlightAction, typee.action) && call(s:FlightAction[typee.action], [typee.raw], a:flight)
       break
     end
     if typee.surplus!='' && a:flight.update_inputline(typee.surplus)
