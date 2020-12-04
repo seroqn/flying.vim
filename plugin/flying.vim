@@ -14,7 +14,7 @@ sunmap <Plug>(flying-T)
 let g:flying#keymappings = exists('g:flying#keymappings') ? g:flying#keymappings :
   \ {"\<C-f>": "forward", "\<C-b>": "backward", "\<C-n>": "nextline", "\<C-p>": "prevline",
   \ "\<C-o>": "histback", "\<C-i>": "histadvance", "\<BS>": "backspace", "\<C-h>": "backspace",
-  \ "\<C-u>": "clearline"}
+  \ "\<C-u>": "clearline", "\<C-^>": 'goto_[({[<]', "\<C-]>": 'goto_[)}\]>]'}
 
 "=============================================================================
 "END "{{{1

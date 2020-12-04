@@ -38,7 +38,7 @@ function! s:Flight.start() abort "{{{
   call self._pos_updated()
 endfunc
 "}}}
-function! s:Flight.cleanup() abort "{{{
+function! s:Flight.cleanup() "{{{
   if self.inputLineV==''
     let s:save_inputline = ''
   end
@@ -50,7 +50,15 @@ function! s:Flight.cleanup() abort "{{{
   call cursor(self.base_pos)
 endfunc
 "}}}
-function! s:Flight.update_inputline(appendee) abort "{{{
+function! s:Flight.goto(pat) abort "{{{
+  let pos = self[self.way=~'\l' ? '_searchforward' : '_searchbackward'](self.posV, '\m\C'. a:pat. '\V')
+  if pos == []
+    return
+  end
+  call self._move_pos_to(pos)._pos_updated()
+endfunc
+"}}}
+function! s:Flight.append_input(appendee) abort "{{{
   if self.inputLineV!=''
     let s:save_inputline = self.inputLineV
   end
@@ -59,10 +67,10 @@ function! s:Flight.update_inputline(appendee) abort "{{{
   if pos == []
     return -1
   end
-  call self._move_pos(pos)._pos_updated()
+  call self._move_pos_to(pos)._pos_updated()
 endfunc
 "}}}
-function! s:Flight.repeat(inputline, cnt) abort "{{{
+function! s:Flight.times(inputline, cnt) abort "{{{
   let self.inputLineV = a:inputline
   let cnt = a:cnt
   while cnt
@@ -89,7 +97,7 @@ function! s:Flight._histgo(delta) abort "{{{
   call self._pos_updated()
 endfunc
 "}}}
-function! s:Flight._move_pos(pos) abort "{{{
+function! s:Flight._move_pos_to(pos) abort "{{{
   let self.posV = a:pos
   if self.histIdxV != len(self.histsV)-1
     let self.histsV = self.histsV[: self.histIdxV]
@@ -123,9 +131,10 @@ function! s:Flight._pos_updated() abort "{{{
   return self
 endfunc
 "}}}
-function! s:Flight._searchforward(pos) abort "{{{
+function! s:Flight._searchforward(pos, ...) abort "{{{
+  let pat = a:0 ? a:1 : self._get_search_pat()
   call cursor(a:pos)
-  let pos = searchpos(self._get_search_pat(), 'Wn', self.bot)
+  let pos = searchpos(pat, 'Wn', self.bot)
   if pos == [0,0]
     return []
   end
@@ -141,12 +150,13 @@ function! s:Flight._searchforward(pos) abort "{{{
     return self._modifypos_fw(pos)
   end
   call cursor([unfold_border, 1])
-  return self._searchforward([unfold_border, 1])
+  return self._searchforward([unfold_border, 1], pat)
 endfunc
 "}}}
-function! s:Flight._searchbackward(pos) abort "{{{
+function! s:Flight._searchbackward(pos, ...) abort "{{{
+  let pat = a:0 ? a:1 : self._get_search_pat()
   call cursor(a:pos)
-  let pos = searchpos(self._get_search_pat(), 'nWb', self.top)
+  let pos = searchpos(pat, 'nWb', self.top)
   if pos == [0,0]
     return []
   end
@@ -161,12 +171,14 @@ function! s:Flight._searchbackward(pos) abort "{{{
   if folded == 1
     return pos
   end
-  return self._searchbackward([unfold_border+1, 1])
+  return self._searchbackward([unfold_border+1, 1], pat)
 endfunc
 "}}}
 function! s:Flight._get_search_pat() abort "{{{
-  if self.way!=#'T'
-    return (self.way==?'t' ? '.\ze\V': '\V'). escape(self.inputLineV, '\')
+  if self.way ==? 'f'
+    return '\V'. escape(self.inputLineV, '\')
+  elseif self.way ==# 't'
+    return '.\ze\V'. escape(self.inputLineV, '\')
   end
   let [first; rest] = split(self.inputLineV, '\zs')
   return '\V'. escape(first, '\'). '\zs'. escape(join(rest, ''), '\')
@@ -189,7 +201,7 @@ function! s:Flight._restore_inputline() abort "{{{
   return 0
 endfunc
 "}}}
-function! s:Flight._break_for_invalid(raw) abort "{{{
+function! s:Flight._break_if_dual_invalid_input(raw) abort "{{{
   if a:raw ==# self.preInvalidInputV
     return -1
   end
@@ -203,47 +215,47 @@ endfunc
 "}}}
 function! s:FlightAction.forward(raw) abort "{{{
   if self._restore_inputline()
-    return self._break_for_invalid(a:raw)
+    return self._break_if_dual_invalid_input(a:raw)
   end
   let pos = self._searchforward(self.posV)
   if pos == []
-    return self._break_for_invalid(a:raw)
+    return self._break_if_dual_invalid_input(a:raw)
   end
   let self.preInvalidInputV = ''
-  call self._move_pos(pos)._pos_updated()
+  call self._move_pos_to(pos)._pos_updated()
 endfunc
 "}}}
 function! s:FlightAction.backward(raw) abort "{{{
   if self._restore_inputline()
-    return self._break_for_invalid(a:raw)
+    return self._break_if_dual_invalid_input(a:raw)
   end
   let pos = self._searchbackward(self.posV)
   if pos == []
-    return self._break_for_invalid(a:raw)
+    return self._break_if_dual_invalid_input(a:raw)
   end
-  call self._move_pos(pos)._pos_updated()
+  call self._move_pos_to(pos)._pos_updated()
 endfunc
 "}}}
 function! s:FlightAction.nextline(raw) abort "{{{
   if self._restore_inputline()
-    return self._break_for_invalid(a:raw)
+    return self._break_if_dual_invalid_input(a:raw)
   end
   let pos = self._searchforward([self.posV[0], col([self.posV[0], '$'])])
   if pos == []
-    return self._break_for_invalid(a:raw)
+    return self._break_if_dual_invalid_input(a:raw)
   end
-  call self._move_pos(pos)._pos_updated()
+  call self._move_pos_to(pos)._pos_updated()
 endfunc
 "}}}
 function! s:FlightAction.prevline(raw) abort "{{{
   if self._restore_inputline()
-    return self._break_for_invalid(a:raw)
+    return self._break_if_dual_invalid_input(a:raw)
   end
   let pos = self._searchbackward([self.posV[0], 1])
   if pos == []
-    return self._break_for_invalid(a:raw)
+    return self._break_if_dual_invalid_input(a:raw)
   end
-  call self._move_pos(pos)._pos_updated()
+  call self._move_pos_to(pos)._pos_updated()
 endfunc
 "}}}
 function! s:FlightAction.histback(raw) abort "{{{
@@ -261,7 +273,7 @@ function! s:FlightAction.histadvance(raw) abort "{{{
 endfunc
 "}}}
 function! s:FlightAction.backspace(raw) abort "{{{
-  let self.inputLineV = self.inputLineV[: -2]
+  let self.inputLineV = join(split(self.inputLineV, '\zs')[: -2], '')
   call self._histgo(-1)
 endfunc
 "}}}
@@ -283,13 +295,13 @@ function! flying#keymap(way) "{{{
   if is_vmode
     return printf(":\<C-u>call flying#_vmode('%s')\<CR>", a:way)
   end
-  let s:landingpoint = v:count==0 ? s:fly(a:way, 0, is_omode) : s:countjump(a:way, v:count, 0, is_omode)
+  let s:landingpoint = v:count==0 ? s:fly(a:way, 0, is_omode) : s:countjump_landingpoint(a:way, v:count, 0, is_omode)
   return printf(":\<C-u>call flying#_move_cursor('%s')\<CR>", a:way)
 endfunc
 "}}}
 function! flying#_vmode(way) abort "{{{
   norm! gv
-  let landingpoint = v:count==0 ? s:fly(a:way, 1, 0) : s:countjump(a:way, v:count, 1, 0)
+  let landingpoint = v:count==0 ? s:fly(a:way, 1, 0) : s:countjump_landingpoint(a:way, v:count, 1, 0)
   if landingpoint.src_pos == landingpoint.dst_pos
     return
   end
@@ -300,7 +312,7 @@ endfunc
 "}}}
 function! flying#_move_cursor(way) abort "{{{
   if s:landingpoint=={}
-    let pos = s:newFlight(a:way, 0, 1).repeat(s:save_inputline, v:count1).landingpoint().dst_pos
+    let pos = s:newFlight(a:way, 0, 1).times(s:save_inputline, v:count1).landingpoint().dst_pos
     call cursor(pos)
     return
   elseif s:landingpoint.src_pos != s:landingpoint.dst_pos
@@ -311,7 +323,7 @@ function! flying#_move_cursor(way) abort "{{{
   let s:landingpoint = {}
 endfunc
 "}}}
-function! s:countjump(way, cnt, is_vmode, is_omode) abort "{{{
+function! s:countjump_landingpoint(way, cnt, is_vmode, is_omode) abort "{{{
   while 1
     let cn = getchar()
     if cn !=# "\x80\xfd`"
@@ -323,7 +335,7 @@ function! s:countjump(way, cnt, is_vmode, is_omode) abort "{{{
     return flight.landingpoint()
   end
   let s:save_inputline = nr2char(cn)
-  return flight.repeat(s:save_inputline, a:cnt).landingpoint()
+  return flight.times(s:save_inputline, a:cnt).landingpoint()
 endfunc
 "}}}
 function! s:fly(way, is_vmode, is_omode) abort "{{{
@@ -345,8 +357,13 @@ function! s:loop(flight) abort "{{{
     end
     if has_key(s:FlightAction, typee.action) && call(s:FlightAction[typee.action], [typee.raw], a:flight)
       break
+    else
+      let pat = matchstr(typee.action, '^goto_\zs\[.\{-1,}\%(\%(\%(^\|[^\\]\)\%(\\\\\)*\)\@<=\\\)\@<!]$')
+      if pat != '' && a:flight.goto(pat)
+        break
+      end
     end
-    if typee.surplus!='' && a:flight.update_inputline(typee.surplus)
+    if typee.surplus!='' && a:flight.append_input(typee.surplus)
       break
     end
   endwhile
